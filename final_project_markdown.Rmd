@@ -1,0 +1,324 @@
+---
+title: "Final Project Code"
+author: "Marc and Piper"
+date: "`r format(Sys.Date(), ' %B %d %Y')`"
+output:
+  html_document:
+runtime: shiny
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  size = "small",
+  collapse = TRUE,
+  comment = NA,
+  warning = FALSE,
+  message = FALSE,
+  error = TRUE,
+  eval = TRUE
+) # change it to TRUE
+
+# Install necessary packages
+# install.packages(c("shiny", "shinythemes", "shinyWidgets", "leaflet", "tidyverse", "janitor", "DT", "maps", "maptools", "sp"))
+
+library(shiny)
+library(shinythemes)
+library(shinyWidgets)
+library(leaflet)
+library(tidyverse)
+library(janitor)
+library(DT)
+library(maps)
+library(maptools)
+library(sp)
+library(tidyverse)
+library(purrr)
+library(rvest)
+library(polite)
+library(readr)
+library(plotly)
+library(countrycode)
+library(scales)
+library(ggradar)
+```
+
+
+
+```{r}
+# chunk to web scrape the data we are interested in
+
+general_player_data <- read_html("https://fbref.com/en/comps/Big5/stats/players/Big-5-European-Leagues-Stats") %>%
+  html_element(css = "#stats_standard") %>%
+  html_table()
+
+defensive_player_data <- read_html("https://fbref.com/en/comps/Big5/defense/players/Big-5-European-Leagues-Stats") %>%
+  html_element(css = "#stats_defense") %>%
+  html_table()
+
+shooting_data <- read_html("https://fbref.com/en/comps/Big5/shooting/players/Big-5-European-Leagues-Stats") %>%
+  html_element(css = "#stats_shooting") %>%
+  html_table()
+
+misc_data <- read_html("https://fbref.com/en/comps/Big5/misc/players/Big-5-European-Leagues-Stats") %>%
+  html_element(css = "#stats_misc") %>%
+  html_table()
+
+passing_data <- read_html("https://fbref.com/en/comps/Big5/passing/players/Big-5-European-Leagues-Stats") %>%
+  html_element(css = "#stats_passing") %>%
+  html_table()
+
+write_csv(general_player_data, "general_player_data.csv")
+write_csv(defensive_player_data, "defensive_player_data.csv")
+write_csv(goalkeeper_specific_data, "goalkeeper_specific_data.csv")
+write_csv(shooting_data, "shooting_data.csv")
+write_csv(misc_data, "misc_data.csv")
+write_csv(passing_data, "passing_data.csv")
+```
+
+
+```{r}
+# chunk to clean the data
+
+# first went into each CSV and deleted the first row from each since it messed up the data and came from the multiple headers on the website.
+
+general <- read_csv("general_player_data.csv")
+defensive <- read_csv("defensive_player_data.csv")
+shooting <- read_csv("shooting_data.csv")
+misc <- read_csv("misc_data.csv")
+passing <- read_csv("passing_data.csv")
+
+# remove the rows that don't actually contain player data but just the column headers again and remove the columns I don't need
+
+general1 <- general %>%
+  filter(!is.na(Rk)) %>%
+  select(c(-Rk, -Matches, -Born))
+defensive1 <- defensive %>%
+  filter(!is.na(Rk)) %>%
+  select(c(-Rk, -Matches, -Born))
+shooting1 <- shooting %>%
+  filter(!is.na(Rk)) %>%
+  select(c(-Rk, -Matches, -Born))
+misc1 <- misc %>%
+  filter(!is.na(Rk)) %>%
+  select(-c("90s", CrdY, CrdR, "2CrdY", Int, TklW, PKwon, PKcon, OG, Matches))
+passing1 <- passing %>%
+  filter(!is.na(Rk)) %>%
+  select(-c("90s", Ast, xAG, xA, "A-xAG", Matches))
+
+# remove goalkeepers from the general data
+general_without_gk <- general1 %>% filter(Pos != "GK")
+defensive_without_gk <- defensive1 %>% filter(Pos != "GK")
+shooting_without_gk <- shooting1 %>% filter(Pos != "GK")
+misc_without_gk <- misc1 %>% filter(Pos != "GK")
+passing_without_gk <- passing1 %>% filter(Pos != "GK")
+```
+
+
+
+
+```{r}
+# chunk to join the data
+
+all_data <- left_join(general_without_gk, defensive_without_gk)
+all_data1 <- left_join(all_data, shooting_without_gk)
+all_data2 <- left_join(all_data1, misc_without_gk)
+all_data3 <- left_join(all_data2, passing_without_gk)
+
+# chunk to select which columns I want to keep and which I want to get rid of of field player data
+
+all_data_without_gk <- all_data_without_gk %>% select(-c(nation_y, pos_y, comp_y, age_y, x90s_y, nation_x_x, pos_x_x, comp_x_x, age_x_x, nation_y_y, pos_y_y, comp_y_y, age_y_y, born_x, rk_y, nation, pos, comp, age, born_y))
+
+
+all_data_without_gk_renamed <- all_data_without_gk %>% rename(name = player, nation = nation_x, position = pos_x, team = squad, league = comp_x, age = age_x, games_played = mp, minutes_played = min, nineties_played = "x90s_x", goals_scored = "gls_13", assists = "ast_14", "goals_plus_assists" = "g_a_15", "non_penalty_goals" = "g_pk_16", pks_scored = pk_x, pks_attempted = p_katt_x, yellow_cards = crd_y, red_cards = crd_r, xG = x_g_21, "non_penalty_xG" = npx_g_22, progressive_carries = prg_c, progressive_passes = prg_p_x, progressive_passes_received = prg_r, goals_per_90 = gls_28, assists_per_90 = ast_29, "goals_plus_assists_per_90" = g_a_30, "non_penalty_goals_per_90" = g_pk_31, xG_per_90 = x_g_33, "non_penalty_xG_per_90" = npx_g_36, tackles = tkl_10, tackles_won = tkl_w, tackles_def_3rd = def_3rd, tackles_mid_3rd = mid_3rd, tackles_att_3rd = att_3rd, shots_blocked = sh_x, passes_blocked = pass, interceptions = int, "tackles_plus_interceptions" = tkl_int, clearances = clr, errors = err, shots = sh_y, shots_on_target = so_t, shots_on_target_percentage = so_t_percent, shots_per_90 = sh_90, passes_blocked = pass, interceptions = int, "tackles_plus_interceptions" = tkl_int, clearances = clr, errors = err, shots = sh_y, shots_on_target = so_t, shots_on_target_percentage = so_t_percent, shots_per_90 = sh_90, shots_on_target_per_90 = so_t_90, goals_per_shot = g_sh, goals_per_shot_on_target = g_so_t, average_shot_distance = dist, non_penalty_xG_per_shot = npx_g_sh, "goals_minus_xG" = g_x_g, fouls_committed = fls, fouls_drawn = fld, offsides = off, crosses = crs, ball_recoveries = recov, aerial_duels_won = won, aerial_duels_lost = lost_y, percentage_of_aerial_duels_won = won_percent, passes_completed = cmp_10, passes_attempted = att_11, pass_completion_percentage = cmp_percent_12, progressive_passing_distance = prg_dist, short_passes_completed = cmp_15, short_passes_attempted = att_16, short_pass_completion_percentage = cmp_percent_17, medium_passes_completed = cmp_18, medium_passes_attempted = att_19, medium_pass_completion_percentage = cmp_percent_20, long_passes_completed = cmp_21, long_passes_attempted = att_22, long_pass_completion_percentage = cmp_percent_23, xA = x_a, key_passes = kp, passes_into_final_3rd = x1_3, crosses_into_penalty_area = crs_pa)
+
+all_data_without_gk_renamed <- all_data_without_gk_renamed %>% select(-c(x_ag_23, npx_g_x_ag_24, g_a_pk, xG_per_90, x_ag_34, x_g_x_ag, npx_g_x_ag_37, tkl_15, lost_x, x90s, gls, fk, pk_y, p_katt_y, x_g, npx_g, np_g_x_g, rk_x, a_x_ag, prg_p_y, ppa, tot_dist))
+```
+
+
+
+```{r}
+# chunk to clean the data
+
+pattern1 <- "^[:alpha:]* "
+pattern2 <- "-[:digit:]*$"
+pattern3 <- ",[:alpha:]*$"
+
+clean_data <- all_data_without_gk_renamed %>% mutate(nation = str_replace_all(nation, pattern1, ""), league = str_replace_all(league, pattern1, ""), age = str_replace_all(age, pattern2, ""), position = str_replace_all(position, pattern3, ""))
+```
+
+
+
+
+```{r}
+# chunk to remove players who didn't play enough to have meaningful stats
+
+all_data_qualified <- clean_data %>%
+  filter(starts > 4 | games_played > 8) %>%
+  filter(minutes_played > 360)
+```
+
+```{r}
+# chunk to change the country codes to the actual country name
+
+all_data_qualified <- all_data_qualified %>% mutate(nation = str_replace_all(nation, "MAR", "Morocco"), nation = str_replace_all(nation, "FRA", "France"), nation = str_replace_all(nation, "GHA", "Ghana"), nation = str_replace_all(nation, "DEN", "Denmark"), nation = str_replace_all(nation, "BRA", "Brazil"), nation = str_replace_all(nation, "ENG", "England"), nation = str_replace_all(nation, "ITA", "Italy"), nation = str_replace_all(nation, "ARG", "Argentina"), nation = str_replace_all(nation, "SCO", "Scotland"), nation = str_replace_all(nation, "ARM", "Armenia"), nation = str_replace_all(nation, "GER", "Germany"), nation = str_replace_all(nation, "SUI", "Switzerland"), nation = str_replace_all(nation, "CIV", "Ivory Coast"), nation = str_replace_all(nation, "ESP", "Spain"), nation = str_replace_all(nation, "COL", "Colombia"), nation = str_replace_all(nation, "NGA", "Nigeria"), nation = str_replace_all(nation, "ALG", "Algeria"), nation = str_replace_all(nation, "AUT", "Austria"), nation = str_replace_all(nation, "NOR", "Norway"), nation = str_replace_all(nation, "NED", "Netherlands"), nation = str_replace_all(nation, "PAR", "Paraguay"), nation = str_replace_all(nation, "GAB", "Gabon"), nation = str_replace_all(nation, "POR", "Portugal"), nation = str_replace_all(nation, "GLP", "Guadeloupe"), nation = str_replace_all(nation, "URU", "Uruguay"), nation = str_replace_all(nation, "SEN", "Senegal"), nation = str_replace_all(nation, "WAL", "Wales"), nation = str_replace_all(nation, "SRB", "Serbia"), nation = str_replace_all(nation, "JAM", "Jamaica"), nation = str_replace_all(nation, "CHI", "Chile"), nation = str_replace_all(nation, "JPN", "Japan"), nation = str_replace_all(nation, "ALB", "Albania"), nation = str_replace_all(nation, "TUR", "Turkey"), nation = str_replace_all(nation, "IRN", "Iran"), nation = str_replace_all(nation, "CMR", "Cameroon"), nation = str_replace_all(nation, "ZAM", "Zambia"), nation = str_replace_all(nation, "GRN", "Grenada"), nation = str_replace_all(nation, "CZE", "Czech Republic"), nation = str_replace_all(nation, "LUX", "Luxembourg"), nation = str_replace_all(nation, "GAM", "Gambia"), nation = str_replace_all(nation, "CRO", "Croatia"), nation = str_replace_all(nation, "BFA", "Burkina Faso"), nation = str_replace_all(nation, "TOG", "Togo"), nation = str_replace_all(nation, "SUR", "Suriname"), nation = str_replace_all(nation, "POL", "Poland"), nation = str_replace_all(nation, "ANG", "Angola"), nation = str_replace_all(nation, "GNB", "Guinea-Bissau"), nation = str_replace_all(nation, "SVN", "Slovenia"), nation = str_replace_all(nation, "MLI", "Mali"), nation = str_replace_all(nation, "COD", "Democratic Republic of the Congo"), nation = str_replace_all(nation, "BEL", "Belgium"), nation = str_replace_all(nation, "TUN", "Tunisia"), nation = str_replace_all(nation, "NZL", "New Zealand"), nation = str_replace_all(nation, "ECU", "Ecuador"), nation = str_replace_all(nation, "SWE", "Sweden"), nation = str_replace_all(nation, "GUI", "Guinea"), nation = str_replace_all(nation, "ROU", "Romania"), nation = str_replace_all(nation, "IRL", "Ireland"), nation = str_replace_all(nation, "CPV", "Cape Verde"), nation = str_replace_all(nation, "ISR", "Israel"), nation = str_replace_all(nation, "CAN", "Canada"), nation = str_replace_all(nation, "MTQ", "Martinique"), nation = str_replace_all(nation, "BIH", "Bosnia and Herzegovina"), nation = str_replace_all(nation, "SVK", "Slovakia"), nation = str_replace_all(nation, "MKD", "North Macedonia"), nation = str_replace_all(nation, "NIR", "Northern Ireland"), nation = str_replace_all(nation, "CRC", "Costa Rica"), nation = str_replace_all(nation, "AUS", "Australia"))
+
+all_data_qualified <- all_data_qualified %>% mutate(nation = str_replace_all(nation, "RUS", "Russia"), nation = str_replace_all(nation, "BUL", "Bulgaria"), nation = str_replace_all(nation, "MEX", "Mexico"), nation = str_replace_all(nation, "KOR", "South Korea"), nation = str_replace_all(nation, "EQG", "Equatorial Guinea"), nation = str_replace_all(nation, "VEN", "Venezuela"), nation = str_replace_all(nation, "PHI", "Philippines"), nation = str_replace_all(nation, "BEN", "Benin"), nation = str_replace_all(nation, "FIN", "Finland"), nation = str_replace_all(nation, "MNE", "Montenegro"), nation = str_replace_all(nation, "ZIM", "Zimbabwe"), nation = str_replace_all(nation, "SLE", "Sierra Leon"), nation = str_replace_all(nation, "CYP", "Cyprus"), nation = str_replace_all(nation, "CTA", "Central African Republic"), nation = str_replace_all(nation, "UKR", "Ukraine"), nation = str_replace_all(nation, "GEO", "Georgia"), nation = str_replace_all(nation, "GRE", "Greece"), nation = str_replace_all(nation, "HON", "Honduras"), nation = str_replace_all(nation, "COM", "Comoros"), nation = str_replace_all(nation, "MOZ", "Mozambique"), nation = str_replace_all(nation, "EGY", "Egypt"), nation = str_replace_all(nation, "CGO", "Republic of Congo"), nation = str_replace_all(nation, "RSA", "South Africa"), nation = str_replace_all(nation, "KVX", "Kosovo"), nation = str_replace_all(nation, "BDI", "Burundi"), nation = str_replace_all(nation, "HUN", "Hungary"), nation = str_replace_all(nation, "MAD", "Madagascar"), nation = str_replace_all(nation, "GUF", "French Guyana"), nation = str_replace_all(nation, "GUF", "French Guyana"), nation = str_replace_all(nation, "UZB", "Uzbekistan"), nation = str_replace_all(nation, "PER", "Peru"))
+```
+
+
+```{r}
+# rescale data for radar plot
+
+data_to_rescale <- read_csv("all_data_qualified.csv")
+
+rescaled <- data_to_rescale %>% mutate(across(where(is.numeric), rescale))
+
+write_csv(rescaled, "rescaled.csv")
+```
+
+
+```{r}
+# initial radar exploration
+stuff <- rescaled %>%
+  filter(name == "Brenden Aaronson" | name == "Tyler Adams") %>%
+  select(1, goals_scored, assists, minutes_played, yellow_cards, tackles, starts)
+stuff1 <- ggradar(stuff, grid.max = 1, centre.y = 0, fill = TRUE, fill.alpha = .5, group.point.size = 3, label.centre.y = FALSE, label.gridline.min = FALSE, label.gridline.mid = FALSE, label.gridline.max = FALSE, plot.legend = TRUE, gridline.min.linetype = "dashed", gridline.mid.linetype = "dashed", gridline.max.linetype = "dashed", gridline.min.colour = "grey", gridline.mid.colour = "grey", gridline.max.colour = "grey", axis.label.offset = 1.2, axis.label.size = 3.5)
+stuff1
+```
+
+
+```{r}
+# write my data to CSV to use in my shiny app
+
+write_csv(all_data_qualified, "all_data_qualified.csv")
+```
+
+
+
+```{r}
+player_data <- read_csv("final_data.csv")
+
+# choosing data to use to run kmeans that we think would generally shape the playing style of each player
+player_data_for_kmeans <- player_data %>% select(c(name, position, goals_per_90, assists_per_90, shots_per_90, shots_on_target_per_90, non_penalty_xG_per_shot, percentage_of_aerial_duels_won, pass_completion_percentage, crosses))
+
+fw_data_allvars <- player_data %>%
+  filter(position == "FW") %>%
+  filter(!duplicated(name))
+mf_data_allvars <- player_data %>%
+  filter(position == "MF") %>%
+  filter(!duplicated(name))
+df_data_allvars <- player_data %>%
+  filter(position == "DF") %>%
+  filter(!duplicated(name))
+
+# need to take out duplicate names
+fw_data <- player_data_for_kmeans %>%
+  filter(position == "FW") %>%
+  select(-position) %>%
+  mutate_all(replace_na, 0) %>%
+  filter(!duplicated(name)) %>%
+  column_to_rownames("name")
+mf_data <- player_data_for_kmeans %>%
+  filter(position == "MF") %>%
+  select(-position) %>%
+  mutate_all(replace_na, 0) %>%
+  filter(!duplicated(name)) %>%
+  column_to_rownames("name")
+df_data <- player_data_for_kmeans %>%
+  filter(position == "DF") %>%
+  select(-position) %>%
+  mutate_all(replace_na, 0) %>%
+  filter(!duplicated(name)) %>%
+  column_to_rownames("name")
+```
+
+```{r}
+standardize <- function(x, na.rm = FALSE) {
+  (x - mean(x, na.rm = na.rm)) / sd(x, na.rm = na.rm)
+}
+```
+
+```{r}
+# chunk to run kmeans for forwards
+
+fw_data_standardized <- fw_data %>% mutate(across(where(is.numeric), standardize))
+
+# run kmeans for fw
+set.seed(4382)
+multi_kmeans_fw <- tibble(k = 1:20) %>%
+  mutate(
+    model = purrr::map(k, ~ kmeans(fw_data_standardized, centers = .x, nstart = 25)),
+    tot.withinss = purrr::map_dbl(model, ~ glance(.x)$tot.withinss)
+  )
+
+
+ggplot(data = multi_kmeans_fw, aes(k, tot.withinss)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = 1:15)
+
+k.means_fwd <- kmeans(fw_data_standardized, centers = 6, nstart = 25)
+
+fw_data_grouped <- fw_data_allvars %>% mutate(fw_group = k.means_fw$cluster)
+```
+
+
+```{r}
+# chunk to run kmeans for midfielders
+
+mf_data_standardized <- mf_data %>% mutate(across(where(is.numeric), standardize))
+
+# run kmeans for fw
+set.seed(4382)
+multi_kmeans_mf <- tibble(k = 1:20) %>%
+  mutate(
+    model = purrr::map(k, ~ kmeans(mf_data_standardized, centers = .x, nstart = 25)),
+    tot.withinss = purrr::map_dbl(model, ~ glance(.x)$tot.withinss)
+  )
+
+
+ggplot(data = multi_kmeans_mf, aes(k, tot.withinss)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = 1:15)
+
+k.means_mf <- kmeans(mf_data_standardized, centers = 5, nstart = 25)
+
+mf_data_grouped <- mf_data_allvars %>% mutate(mf_group = k.means_mf$cluster)
+```
+
+
+```{r}
+# chunk to run kmeans for defenders
+
+df_data_standardized <- df_data %>% mutate(across(where(is.numeric), standardize))
+
+set.seed(4382)
+multi_kmeans_df <- tibble(k = 1:20) %>%
+  mutate(
+    model = purrr::map(k, ~ kmeans(df_data_standardized, centers = .x, nstart = 25)),
+    tot.withinss = purrr::map_dbl(model, ~ glance(.x)$tot.withinss)
+  )
+
+
+ggplot(data = multi_kmeans_df, aes(k, tot.withinss)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = 1:15)
+
+k.means_df <- kmeans(df_data_standardized, centers = 5, nstart = 25)
+
+df_data_grouped <- df_data_allvars %>% mutate(df_group = k.means_df$cluster)
+```
+
+
+
+```{r}
+# write the kmeans data to CSV for use in our shiny app
+
+write_csv(fw_data_grouped, "fw_for_kmeans.csv")
+write_csv(mf_data_grouped, "mf_for_kmeans.csv")
+write_csv(df_data_grouped, "df_for_kmeans.csv")
+```
